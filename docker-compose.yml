@@ -1,0 +1,160 @@
+# The whole demo in containers: one per Mastra server, plus the UI and the Bifrost LLM gateway. Start it with scripts/docker.sh.
+
+# Where each server lives on the compose network. Read by the router and by the UI.
+x-agent-urls: &agent-urls
+  ROUTER_URL: http://router:4111
+  PRODUCT_ELIGIBILITY_URL: http://product-eligibility:4112
+  LOAN_INTAKE_URL: http://loan-intake:4113
+  BORROWER_URL: http://borrower:4114
+  DECLARATIONS_URL: http://declarations:4115
+  INCOME_EMPLOYMENT_URL: http://income-employment:4116
+  ASSETS_URL: http://assets:4117
+  LIABILITIES_URL: http://liabilities:4118
+  OWNED_PROPERTIES_URL: http://owned-properties:4119
+  SUBJECT_PROPERTY_URL: http://subject-property:4120
+  CREDIT_URL: http://credit:4121
+
+x-healthcheck: &healthcheck
+  test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:$$PORT/health || exit 1']
+  interval: 5s
+  timeout: 3s
+  retries: 12
+  start_period: 5s
+
+# Every server sends its LLM calls to the Bifrost gateway (see servers/shared/model.ts).
+x-bifrost-healthy: &bifrost-healthy
+  bifrost: { condition: service_healthy }
+
+x-specialists-healthy: &specialists-healthy
+  product-eligibility: { condition: service_healthy }
+  loan-intake: { condition: service_healthy }
+  borrower: { condition: service_healthy }
+  declarations: { condition: service_healthy }
+  income-employment: { condition: service_healthy }
+  assets: { condition: service_healthy }
+  liabilities: { condition: service_healthy }
+  owned-properties: { condition: service_healthy }
+  subject-property: { condition: service_healthy }
+  credit: { condition: service_healthy }
+
+services:
+  # LLM gateway: holds the provider keys and logs every request. UI at http://localhost:8080
+  bifrost:
+    image: maximhq/bifrost:v2.5.1
+    env_file: .env
+    # Local only: the gateway takes requests without a key (see docker/bifrost/config.json).
+    ports: ['127.0.0.1:8080:8080']
+    volumes:
+      - bifrost-data:/app/data
+      - ./docker/bifrost/config.json:/app/data/config.json:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:8080/health >/dev/null || exit 1']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  router:
+    build: { context: ., dockerfile: docker/mastra.Dockerfile, args: { SERVER: router } }
+    env_file: .env
+    environment: { <<: *agent-urls, PORT: 4111, BIFROST_URL: http://bifrost:8080 }
+    ports: ['4111:4111']
+    healthcheck: *healthcheck
+    depends_on: *specialists-healthy
+
+  product-eligibility:
+    build: { context: ., dockerfile: docker/mastra.Dockerfile, args: { SERVER: product-eligibility } }
+    env_file: .env
+    environment: { PORT: 4112, BIFROST_URL: http://bifrost:8080 }
+    ports: ['4112:4112']
+    healthcheck: *healthcheck
+    depends_on: *bifrost-healthy
+
+  loan-intake:
+    build: { context: ., dockerfile: docker/mastra.Dockerfile, args: { SERVER: loan-intake } }
+    env_file: .env
+    environment: { PORT: 4113, BIFROST_URL: http://bifrost:8080 }
+    ports: ['4113:4113']
+    healthcheck: *healthcheck
+    depends_on: *bifrost-healthy
+
+  borrower:
+    build: { context: ., dockerfile: docker/mastra.Dockerfile, args: { SERVER: borrower } }
+    env_file: .env
+    environment: { PORT: 4114, BIFROST_URL: http://bifrost:8080 }
+    ports: ['4114:4114']
+    healthcheck: *healthcheck
+    depends_on: *bifrost-healthy
+
+  declarations:
+    build: { context: ., dockerfile: docker/mastra.Dockerfile, args: { SERVER: declarations } }
+    env_file: .env
+    environment: { PORT: 4115, BIFROST_URL: http://bifrost:8080 }
+    ports: ['4115:4115']
+    healthcheck: *healthcheck
+    depends_on: *bifrost-healthy
+
+  income-employment:
+    build: { context: ., dockerfile: docker/mastra.Dockerfile, args: { SERVER: income-employment } }
+    env_file: .env
+    environment: { PORT: 4116, BIFROST_URL: http://bifrost:8080 }
+    ports: ['4116:4116']
+    healthcheck: *healthcheck
+    depends_on: *bifrost-healthy
+
+  assets:
+    build: { context: ., dockerfile: docker/mastra.Dockerfile, args: { SERVER: assets } }
+    env_file: .env
+    environment: { PORT: 4117, BIFROST_URL: http://bifrost:8080 }
+    ports: ['4117:4117']
+    healthcheck: *healthcheck
+    depends_on: *bifrost-healthy
+
+  liabilities:
+    build: { context: ., dockerfile: docker/mastra.Dockerfile, args: { SERVER: liabilities } }
+    env_file: .env
+    environment: { PORT: 4118, BIFROST_URL: http://bifrost:8080 }
+    ports: ['4118:4118']
+    healthcheck: *healthcheck
+    depends_on: *bifrost-healthy
+
+  owned-properties:
+    build: { context: ., dockerfile: docker/mastra.Dockerfile, args: { SERVER: owned-properties } }
+    env_file: .env
+    environment: { PORT: 4119, BIFROST_URL: http://bifrost:8080 }
+    ports: ['4119:4119']
+    healthcheck: *healthcheck
+    depends_on: *bifrost-healthy
+
+  subject-property:
+    build: { context: ., dockerfile: docker/mastra.Dockerfile, args: { SERVER: subject-property } }
+    env_file: .env
+    environment: { PORT: 4120, BIFROST_URL: http://bifrost:8080 }
+    ports: ['4120:4120']
+    healthcheck: *healthcheck
+    depends_on: *bifrost-healthy
+
+  credit:
+    build: { context: ., dockerfile: docker/mastra.Dockerfile, args: { SERVER: credit } }
+    env_file: .env
+    environment: { PORT: 4121, BIFROST_URL: http://bifrost:8080 }
+    ports: ['4121:4121']
+    healthcheck: *healthcheck
+    depends_on: *bifrost-healthy
+
+  # The UI needs no API key, only the server addresses.
+  web:
+    build: { context: ., dockerfile: docker/web.Dockerfile }
+    environment: *agent-urls
+    ports: ['3030:3030']
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3030/ >/dev/null || exit 1']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    depends_on:
+      router: { condition: service_healthy }
+
+volumes:
+  bifrost-data:

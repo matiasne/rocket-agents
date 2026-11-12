@@ -1,0 +1,453 @@
+:root {
+  --bg: #f6f5f1;
+  --panel: #ffffff;
+  --text: #1c1b19;
+  --muted: #6b6860;
+  --border: #dedbd2;
+  --accent: #5b4bd6;
+  --working: #b26a00;
+  --done: #1a7f4b;
+  --failed: #c0362c;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161614;
+    --panel: #201f1c;
+    --text: #ecebe6;
+    --muted: #9c988d;
+    --border: #35332e;
+    --accent: #9d92ff;
+    --working: #f0a840;
+    --done: #4cc38a;
+    --failed: #ff7a6e;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+main { display: flex; flex-direction: column; flex: 1; min-width: 0; max-width: 1200px; height: 100vh; margin: 0 auto; padding: 24px 16px 16px; }
+.layout { display: flex; align-items: flex-start; }
+h3 { margin: 16px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+h2 { margin: 0; font-size: 17px; }
+code { font: 12px ui-monospace, Menlo, monospace; color: var(--muted); overflow-wrap: anywhere; }
+
+form { display: flex; gap: 8px; }
+input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  font: inherit;
+  color: inherit;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+button {
+  padding: 10px 16px;
+  font: inherit;
+  color: #fff;
+  background: var(--accent);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+@media (prefers-color-scheme: dark) { button[type='submit'] { color: #161614; } }
+.suggestions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.suggestions button {
+  padding: 4px 10px;
+  font-size: 13px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.suggestions button:hover { color: var(--text); border-color: var(--muted); }
+
+button:disabled { opacity: 0.5; cursor: default; }
+
+/* The chat fills the page; the specialists' task list lives in a drawer on the right. */
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1; min-height: 0; }
+.chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+/* Session tabs along the top of the chat; they scroll sideways when there are many. */
+.sessions { display: flex; align-items: center; gap: 4px; padding: 8px 8px 0; overflow-x: auto; border-bottom: 1px solid var(--border); }
+.session-tab { display: inline-flex; align-items: center; flex: none; max-width: 220px; border: 1px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0; }
+.session-tab[aria-selected='true'] { background: var(--bg); border-color: var(--border); margin-bottom: -1px; padding-bottom: 1px; }
+.session-tab button { padding: 6px 10px; font-size: 13px; color: var(--muted); background: transparent; border-radius: 0; }
+.session-tab button[role='tab'] { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.session-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.session-tab[aria-selected='true'] button[role='tab'] { color: var(--text); }
+.session-tab .session-close { padding: 6px 8px 6px 0; }
+.session-tab .session-close:hover { color: var(--text); }
+.session-busy { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--working); }
+.session-new { flex: none; padding: 4px 10px; font-size: 16px; color: var(--muted); background: transparent; }
+.session-new:hover { color: var(--text); }
+.messages { display: flex; flex-direction: column; gap: 18px; flex: 1; min-height: 0; overflow-y: auto; padding: 16px; }
+.composer { padding: 12px; border-top: 1px solid var(--border); }
+.chat input { background: var(--bg); }
+.chat-empty { margin: auto; text-align: center; color: var(--muted); }
+.turn { display: flex; flex-direction: column; gap: 10px; }
+.bubble { max-width: 85%; padding: 9px 13px; border-radius: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble.user { align-self: flex-end; color: #fff; background: var(--accent); border-bottom-right-radius: 4px; }
+.bubble.router { background: var(--bg); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+.bubble.failed { border-color: var(--failed); }
+@media (prefers-color-scheme: dark) { .bubble.user { color: #161614; } }
+.reply { display: flex; align-items: flex-end; gap: 10px; }
+.reply .avatar { width: 30px; height: 30px; font-size: 11px; }
+.typing { display: inline-flex; gap: 4px; padding: 6px 0; }
+.typing i { width: 7px; height: 7px; background: var(--muted); border-radius: 50%; animation: typing 1.2s ease-in-out infinite; }
+.typing i:nth-child(2) { animation-delay: 0.15s; }
+.typing i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes typing { 0%, 60%, 100% { opacity: 0.3; transform: none; } 30% { opacity: 1; transform: translateY(-3px); } }
+/* The protocol events behind a reply, folded away under it. */
+.events { margin-top: 8px; font-size: 12px; color: var(--muted); white-space: normal; }
+.events > code { display: block; margin: 6px 0 2px; }
+.sender { align-self: flex-end; margin-bottom: -6px; font-size: 11px; color: var(--muted); }
+/* Rendered Markdown replies: tight spacing to suit a chat bubble. */
+.markdown { white-space: normal; }
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown p, .markdown ul, .markdown ol, .markdown table, .markdown pre, .markdown blockquote { margin: 0 0 10px; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { margin: 14px 0 6px; font-size: 15px; text-transform: none; letter-spacing: 0; color: var(--text); }
+.markdown ul, .markdown ol { padding-left: 20px; }
+.markdown li + li { margin-top: 3px; }
+.markdown a { color: var(--accent); }
+.markdown code { padding: 1px 4px; color: var(--text); background: var(--panel); border-radius: 4px; }
+.markdown pre code { padding: 0; background: none; }
+.markdown blockquote { padding-left: 10px; color: var(--muted); border-left: 3px solid var(--border); }
+.markdown hr { margin: 12px 0; border: 0; border-top: 1px solid var(--border); }
+/* Wide tables scroll inside the bubble instead of stretching it. */
+.markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 14px; }
+.markdown th, .markdown td { padding: 5px 10px; text-align: left; border: 1px solid var(--border); overflow-wrap: normal; }
+.markdown th { font-weight: 600; background: var(--panel); }
+.bubble .approval { margin-top: 8px; white-space: normal; background: var(--panel); }
+/* Right drawer: slides in over the page edge and scrolls on its own. */
+.drawer {
+  position: fixed;
+  inset: 0 0 0 auto;
+  z-index: 20;
+  width: min(460px, 100vw);
+  padding: 20px 16px;
+  overflow-y: auto;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgb(0 0 0 / 0.12);
+  visibility: hidden;
+  transform: translateX(100%);
+  transition: transform 0.2s ease, visibility 0s 0.2s;
+}
+.drawer.open { visibility: visible; transform: none; transition: transform 0.2s ease; }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; }
+.drawer-toggle { display: inline-flex; align-items: center; gap: 6px; flex: none; margin: 0 0 6px auto; padding: 5px 10px; font-size: 13px; color: var(--text); background: transparent; border: 1px solid var(--border); }
+.drawer-toggle[aria-expanded='true'] { background: var(--bg); }
+.drawer-toggle small { color: var(--muted); }
+.hint, .empty { margin: 2px 0 12px; font-size: 13px; color: var(--muted); }
+article {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.row { display: flex; align-items: baseline; gap: 8px; }
+.prompt { font-weight: 600; overflow-wrap: anywhere; }
+.badge {
+  flex: none;
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--working);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+}
+.badge.completed { color: var(--done); }
+.badge.failed, .badge.canceled, .badge.rejected { color: var(--failed); }
+ol { margin: 0; padding: 0; list-style: none; font-size: 13px; color: var(--muted); }
+time { display: inline-block; min-width: 52px; font-variant-numeric: tabular-nums; color: var(--text); }
+.pending { animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+.answer { padding-top: 8px; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+
+.agent { font: 12px ui-monospace, Menlo, monospace; color: var(--accent); }
+
+aside {
+  position: sticky;
+  top: 0;
+  flex: none;
+  width: 250px;
+  height: 100vh;
+  overflow-y: auto;
+  padding: 32px 10px;
+  border-right: 1px solid var(--border);
+}
+aside h2 { margin: 0 8px 10px; }
+.agent-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 4px 28px 4px 8px;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+}
+.agent-item:hover { background: var(--panel); }
+.agent-item .avatar { grid-row: span 2; }
+.agent-name { font-size: 13px; font-weight: 600; line-height: 1.3; }
+.agent-status { font-size: 11px; line-height: 1.3; color: var(--muted); }
+aside .avatar { width: 28px; height: 28px; font-size: 10px; border-radius: 8px; }
+aside .avatar.working::after { border-radius: 11px; }
+.agent-status.working { color: var(--working); animation: pulse 1.2s ease-in-out infinite; }
+.agent-row { display: flex; align-items: center; }
+.agent-row .agent-item { flex: 1; min-width: 0; }
+.agent-row.disabled .agent-item { opacity: 0.5; }
+/* The gear shows while the row is hovered or focused. */
+.settings-button {
+  display: grid;
+  place-items: center;
+  flex: none;
+  padding: 5px;
+  margin-right: 2px;
+  color: var(--muted);
+  background: transparent;
+  border-radius: 6px;
+  opacity: 0;
+}
+.settings-button:hover { color: var(--text); background: var(--panel); }
+.agent-row:hover .settings-button,
+.agent-row:focus-within .settings-button { opacity: 1; }
+@media (hover: none) { .settings-button { opacity: 1; } }
+.setting { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 14px; }
+.setting + .setting { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.setting > span:first-child { display: grid; gap: 2px; }
+.setting small { font-size: 12px; color: var(--muted); }
+/* On/off switch: the checkbox stays in place for keyboard and screen readers. */
+.switch { position: relative; flex: none; width: 30px; height: 18px; cursor: pointer; }
+.switch input { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; margin: 0; opacity: 0; cursor: pointer; }
+.switch span { position: absolute; inset: 0; border-radius: 9px; background: var(--border); transition: background 0.15s; pointer-events: none; }
+.switch span::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--panel);
+  transition: transform 0.15s;
+}
+.switch input:checked + span { background: var(--done); }
+.switch input:checked + span::after { transform: translateX(12px); }
+.switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  border-radius: 10px;
+}
+.reply .avatar { border-radius: 8px; }
+/* Working: a light that runs around the avatar's outline. The outline itself stays
+   still: only the gradient's angle turns, and the mask keeps just a 2px band of it. */
+@property --sweep { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+.avatar.working::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  padding: 2px;
+  border-radius: 13px;
+  background: conic-gradient(from var(--sweep), transparent 25%, var(--working));
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  animation: sweep 1.1s linear infinite;
+}
+.reply .avatar.working::after { border-radius: 11px; }
+@keyframes sweep { to { --sweep: 360deg; } }
+
+/* A hand-off, drawn in a lane right of the agent rows: a line joins the two
+   rows and a dot travels along it (--dy is the distance). */
+.track {
+  position: absolute;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+  border-radius: 1px;
+  pointer-events: none;
+  animation: track 1.6s ease both;
+}
+.track.response { background: var(--done); }
+.track.failed { background: var(--failed); }
+@keyframes track {
+  0%, 100% { opacity: 0; }
+  15%, 75% { opacity: 0.45; }
+}
+.packet {
+  position: absolute;
+  z-index: 1;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--accent);
+  pointer-events: none;
+  animation: travel 1.6s ease-in-out both;
+}
+.packet.response { background: var(--done); box-shadow: 0 0 8px var(--done); }
+.packet.failed { background: var(--failed); box-shadow: 0 0 8px var(--failed); }
+@keyframes travel {
+  0% { opacity: 0; transform: translateY(0); }
+  10% { opacity: 1; transform: translateY(0); }
+  85% { opacity: 1; transform: translateY(var(--dy)); }
+  100% { opacity: 0; transform: translateY(var(--dy)); }
+}
+/* The reason for the hand-off: a bubble that floats beside the specialist's
+   row for a few seconds. Fixed, so the sidebar's scroll box cannot clip it. */
+.signal-note {
+  position: fixed;
+  z-index: 5;
+  left: min(var(--x), calc(100vw - 296px));
+  width: max-content;
+  max-width: 280px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.35;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+  pointer-events: none;
+  translate: 0 -50%;
+  animation: note 5s ease both, float 2s ease-in-out infinite;
+}
+/* Tail pointing at the agent row. */
+.signal-note::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: -5px;
+  width: 8px;
+  height: 8px;
+  background: var(--panel);
+  border: solid var(--accent);
+  border-width: 0 0 1px 1px;
+  transform: translateY(-50%) rotate(45deg);
+}
+.signal-note > span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.signal-note b { color: var(--accent); }
+.signal-note.response, .signal-note.response::before { border-color: var(--done); }
+.signal-note.response b { color: var(--done); }
+.signal-note.failed, .signal-note.failed::before { border-color: var(--failed); }
+.signal-note.failed b { color: var(--failed); }
+@keyframes note {
+  0% { opacity: 0; scale: 0.9; }
+  6%, 90% { opacity: 1; scale: 1; }
+  100% { opacity: 0; scale: 1; }
+}
+@keyframes float { 50% { translate: 0 calc(-50% - 5px); } }
+
+dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  padding: 0;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+dialog::backdrop { background: rgb(0 0 0 / 0.5); }
+.modal { padding: 20px; }
+.modal-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.modal-head > div { flex: 1; min-width: 0; }
+.close { padding: 0 8px; font-size: 22px; color: var(--muted); background: transparent; }
+dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 0; font-size: 14px; }
+dt { color: var(--muted); }
+dd { margin: 0; }
+.delay-field { flex: none; flex-wrap: wrap; align-items: center; justify-content: flex-end; }
+.delay-field input { flex: none; width: 80px; padding: 4px 8px; }
+.delay-field button { padding: 4px 12px; font-size: 13px; }
+.delay-error { flex-basis: 100%; font-size: 12px; color: var(--failed); }
+.instructions { margin: 0; font-size: 14px; white-space: pre-wrap; }
+.skills { margin: 0; padding: 0; list-style: none; font-size: 14px; }
+.skills li { padding: 6px 0; border-top: 1px solid var(--border); }
+.skills code { display: block; color: var(--accent); }
+.offline-note { color: var(--failed); }
+
+.avatar.protocol { font-size: 11px; color: var(--accent); background: transparent; border: 1.5px solid var(--accent); }
+aside .agent-item + h2 { margin-top: 20px; }
+pre {
+  margin: 6px 0;
+  padding: 8px 10px;
+  max-height: 260px;
+  overflow: auto;
+  font: 12px/1.45 ui-monospace, Menlo, monospace;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+/* Who is asking: loan officer (A2A) or the borrower's agent (PAP). */
+.mode { display: inline-flex; margin-bottom: 10px; padding: 3px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; }
+.mode button { padding: 5px 12px; font-size: 14px; color: var(--muted); background: transparent; border-radius: 7px; }
+.mode button[aria-checked='true'] { color: var(--text); background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); }
+.mode small { margin-left: 4px; font: 11px ui-monospace, Menlo, monospace; color: var(--accent); }
+
+summary { cursor: pointer; }
+summary:hover { color: var(--text); }
+
+/* A PAP operation: exact terms waiting for the borrower's approval. */
+.approval {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--working);
+  border-radius: 8px;
+}
+.approval.approved, .approval.performing, .approval.performed { border-color: var(--done); }
+.approval.declined, .approval.expired { border-color: var(--border); }
+.approval .row { justify-content: space-between; }
+.approval p { margin: 0; font-size: 14px; }
+.approval dl { grid-template-columns: 1fr; gap: 0; font-size: 13px; }
+.approval dl div { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; border-top: 1px solid var(--border); }
+.operation-state { font-size: 12px; font-weight: 600; color: var(--working); font-variant-numeric: tabular-nums; }
+.approved .operation-state, .performing .operation-state, .performed .operation-state { color: var(--done); }
+.declined .operation-state, .expired .operation-state { color: var(--muted); }
+.actions { display: flex; gap: 8px; }
+.actions button { padding: 6px 14px; font-size: 14px; }
+@media (prefers-color-scheme: dark) { .actions button:not(.quiet) { color: #161614; } }
+button.quiet { color: var(--text); background: transparent; border: 1px solid var(--border); }
+.approval .note { font-size: 13px; color: var(--muted); }
+
+@media (max-width: 760px) {
+  .layout { flex-direction: column; }
+  main { height: auto; }
+  .chat { height: 70vh; }
+  aside { position: relative; width: 100%; height: auto; padding: 16px 10px 0; border-right: 0; }
+}
