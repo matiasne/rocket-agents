@@ -1,9 +1,11 @@
-import { Agent } from '@mastra/core/agent'
 import { Mastra } from '@mastra/core/mastra'
 import { createObservability } from '../../../shared/observability'
 import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
-import { delayRoutes, responseDelay } from '../../../shared/delay'
+import { delayRoutes } from '../../../shared/delay'
+import { EscalationHintError } from '../../../shared/escalation'
+import { createSpecialistAgent } from '../../../shared/escalation-runtime'
+import { faultRoutes } from '../../../shared/fault'
 import { MODEL } from '../../../shared/model'
 
 type Employment = { employmentId: string; employer: string; position?: string; startDate?: string; monthlyIncome: number }
@@ -43,7 +45,8 @@ const addIncome = createTool({
   description: 'Adds a non-employment income source for a borrower (for example pension, alimony, dividends).',
   inputSchema: borrowerRef.extend({ type: z.string(), monthlyAmount: z.number().nonnegative() }),
   execute: async ({ loanId, borrowerId, type, monthlyAmount }) => {
-    if (/rent/i.test(type)) return { error: 'Rental income is not entered here. It comes from the owned-properties specialist.' }
+    // Rental income is not entered here: it comes from the owned-properties specialist. The router sends it there.
+    if (/rent/i.test(type)) throw new EscalationHintError('unsupported_request', { cause: 'intent' })
     const income = { incomeId: `INC-${nextId++}`, type, monthlyAmount }
     recordsOf(loanId, borrowerId).incomes.push(income)
     return income
@@ -62,19 +65,18 @@ const listIncome = createTool({
   },
 })
 
-const incomeEmploymentAgent = new Agent({
+const incomeEmploymentAgent = createSpecialistAgent({
   id: 'income-employment',
   name: 'Income and Employment',
   description: 'Employment and income for each borrower on a loan.',
   instructions:
-    'You record employment and income for each borrower on a mortgage loan. Always use your tools, and require a loanId and borrowerId. Rental income does not belong here: it comes from the owned-properties specialist, so say so instead of entering it. Never estimate an amount that was not given.',
+    'You record employment and income for each borrower on a mortgage loan. Always use your tools, and require a loanId and borrowerId. Pass every income type to add-income exactly as given: the tool decides what belongs here. Never estimate an amount that was not given.',
   model: MODEL,
-  inputProcessors: [responseDelay],
   tools: { addEmployment, addIncome, listIncome },
 })
 
 export const mastra = new Mastra({
   agents: { incomeEmploymentAgent },
   observability: createObservability('income-employment'),
-  server: { port: Number(process.env.PORT ?? 4116), apiRoutes: delayRoutes },
+  server: { port: Number(process.env.PORT ?? 4116), apiRoutes: [...delayRoutes, ...faultRoutes] },
 })

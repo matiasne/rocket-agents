@@ -3,7 +3,7 @@ import { MastraClient } from '@mastra/client-js'
 // One Mastra server per agent. Same ids, ports and env names as
 // servers/router/src/mastra/specialists.ts: <ID>_URL overrides where a server lives.
 const PORTS = {
-  router: 4111,
+  master: 4111,
   'product-eligibility': 4112,
   'loan-intake': 4113,
   borrower: 4114,
@@ -21,5 +21,5 @@ const agents = Object.entries(PORTS).map(([id, port]) => {
   return { id, url, client: new MastraClient({ baseUrl: url }) }
 })
 
-export const [router, ...specialists] = agents
+export const [master, ...specialists] = agents
 export { agents }

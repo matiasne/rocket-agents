@@ -17,6 +17,7 @@
     "server:credit": "cd servers/credit && mastra dev --env ../../.env",
     "dev:next": "next dev -p 3030",
     "dev:push": "./scripts/dev-push.sh",
+    "test": "vitest run",
     "bifrost": "docker compose up bifrost",
     "docker:up": "./scripts/docker.sh up",
     "docker:down": "./scripts/docker.sh down",
@@ -43,6 +44,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "concurrently": "^10.0.7",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
   }
 }

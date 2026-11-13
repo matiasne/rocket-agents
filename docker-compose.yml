@@ -2,7 +2,7 @@
 
 # Where each server lives on the compose network. Read by the router and by the UI.
 x-agent-urls: &agent-urls
-  ROUTER_URL: http://router:4111
+  MASTER_URL: http://router:4111
   PRODUCT_ELIGIBILITY_URL: http://product-eligibility:4112
   LOAN_INTAKE_URL: http://loan-intake:4113
   BORROWER_URL: http://borrower:4114

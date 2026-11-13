@@ -1,5 +1,8 @@
 import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
+import { escalationResult } from '../../../../shared/escalation-runtime'
+import { creditPullApproval } from '../escalation/approvals'
+import type { StopDetail } from '../escalation/router'
 import { requestCreditPullApproval, type PoppyContext } from '../poppy'
 
 // Borrower consent is not something the model can state. This tool sends the exact terms
@@ -19,12 +22,11 @@ export const requestBorrowerApproval = createTool({
     if (poppy?.approved?.terms.loanId === loanId) {
       return { approved: true, next: 'The approval is attached to this request. Delegate the credit pull to credit now.' }
     }
+    // This caller cannot show the borrower anything to approve (the loan officer's UI, a plain A2A client).
+    // The turn ends here: where the approval is given, and no credit pull.
     if (!poppy?.operations) {
-      return {
-        approved: false,
-        error:
-          "Not asked: the borrower's approval can only be given through the borrower's own agent (Personal Agent Protocol operations extension, or the MCP front door). Do not pull credit. Tell the user the borrower has to approve it from their agent.",
-      }
+      const approval = creditPullApproval(context.agent?.threadId, loanId)
+      return escalationResult({ escalationReason: 'approval_required', cause: 'permission' }, { agent: 'credit', approval } satisfies StopDetail)
     }
     poppy.asked = requestCreditPullApproval(poppy.conversationId, loanId, loanOfficerApproved)
     return {

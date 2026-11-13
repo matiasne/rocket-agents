@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { FAULTS, readEscalation, readReason, type Escalation } from '@/lib/escalation'
 
 // `detail` is the raw JSON behind the entry, shown when the entry is opened.
 type LogEntry = { at: number; label: string; detail?: unknown }
@@ -19,6 +20,8 @@ type RouterTask = {
   taskId?: string
   state: string
   answer: string
+  // Set when the router ended the turn without an answer.
+  escalation?: Escalation
   log: LogEntry[]
 }
 
@@ -26,7 +29,7 @@ type SpecialistTask = {
   id: string
   contextId?: string
   agent: string
-  status?: { state?: string; timestamp?: string }
+  status?: { state?: string; timestamp?: string; message?: { parts?: { text?: string }[] } }
   history?: { parts?: { text?: string }[] }[]
   artifacts?: { parts?: { text?: string }[] }[]
 }
@@ -62,8 +65,9 @@ const SIGNAL_MS = 5000
 
 // `card` is null while the agent's server is unreachable. `enabled` says whether the router
 // may delegate to it: null for the router itself, or while the router is unreachable.
-// `delayMs` is the wait the agent's server adds before it starts on a message (null while unreachable).
-type AgentInfo = { id: string; card: AgentCard | null; enabled: boolean | null; delayMs: number | null }
+// `delayMs` is the wait the agent's server adds before it starts on a message, and `fault` the
+// fault it injects instead of answering (both null while unreachable).
+type AgentInfo = { id: string; card: AgentCard | null; enabled: boolean | null; delayMs: number | null; fault: string | null }
 
 // Personal Agent Protocol (PAP): the company's discovery document, /.well-known/poppy.json.
 type PoppyDocument = {
@@ -183,11 +187,13 @@ function SettingsModal({
   agent,
   onToggle,
   onDelayChange,
+  onFaultChange,
   onClose,
 }: {
   agent: AgentInfo
   onToggle: (enabled: boolean) => void
   onDelayChange: (delayMs: number) => Promise<string | undefined>
+  onFaultChange: (fault: string) => void
   onClose: () => void
 }) {
   return (
@@ -202,7 +208,7 @@ function SettingsModal({
           ×
         </button>
       </div>
-      {agent.enabled === null && agent.delayMs === null && <p className="offline-note">This agent's server is unreachable.</p>}
+      {agent.enabled === null && agent.delayMs === null && agent.fault === null && <p className="offline-note">This agent's server is unreachable.</p>}
       {agent.enabled !== null && (
         <label className="setting">
           <span>
@@ -224,6 +230,19 @@ function SettingsModal({
           {/* Keyed by the saved value, so the field shows it again after a save. */}
           <DelayField key={agent.delayMs} agent={agent} onSave={onDelayChange} />
         </div>
+      )}
+      {agent.fault !== null && (
+        <label className="setting">
+          <span>
+            <b>Inject a fault</b>
+            <small>The agent fails this way on every message, until set back to none.</small>
+          </span>
+          <select className={agent.fault === 'none' ? undefined : 'active'} value={agent.fault} onChange={event => onFaultChange(event.target.value)}>
+            {FAULTS.map(fault => (
+              <option key={fault}>{fault}</option>
+            ))}
+          </select>
+        </label>
       )}
     </Modal>
   )
@@ -491,11 +510,13 @@ export default function Page() {
       const state = taskState(task)
       const row = specialist.getBoundingClientRect()
       const result = (task.artifacts ?? []).map(artifact => partsText(artifact.parts)).join('')
+      // A task that failed says why with a reason code.
+      const reason = readReason(partsText(task.status?.message?.parts))
       created.push({
         key: counter.current++,
         agent: task.agent,
         kind,
-        text: kind === 'request' ? partsText(task.history?.[0]?.parts) || 'delegated request' : result || state,
+        text: kind === 'request' ? partsText(task.history?.[0]?.parts) || 'delegated request' : result || (reason ? `${state}: ${reason}` : state),
         failed: kind === 'response' && state !== 'completed',
         top: centre(from),
         // A lane down the right edge of the rows, clear of avatars and names.
@@ -630,6 +651,19 @@ export default function Page() {
     setAgents(current => current.map(agent => (agent.id === id ? { ...agent, delayMs: data.delayMs } : agent)))
   }
 
+  // Sets the fault an agent injects. Shown at once, put back if its server refuses.
+  async function setAgentFault(id: string, fault: string) {
+    const set = (value: string | null) => setAgents(current => current.map(agent => (agent.id === id ? { ...agent, fault: value } : agent)))
+    const before = agents.find(agent => agent.id === id)?.fault ?? null
+    set(fault)
+    const res = await fetch(`/api/agents/${id}/fault`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fault }),
+    }).catch(() => null)
+    if (!res?.ok) set(before)
+  }
+
   async function submit(session: Session, prompt: string) {
     const localId = `local-${counter.current++}`
     const startedAt = Date.now()
@@ -657,10 +691,13 @@ export default function Page() {
         patch(localId, task => log({ ...task, taskId: event.id, state: event.status.state }, `task created → ${event.status.state}`))
       } else if (event.kind === 'status-update') {
         const note = partsText(event.status.message?.parts)
+        const failed = event.status.state === 'failed'
+        // A failed turn is normally an escalation: show its sentence, not the wire text.
+        const stop = failed ? readEscalation(note) : undefined
         patch(localId, task =>
           log(
-            { ...task, state: event.status.state, answer: event.status.state === 'failed' ? note : task.answer },
-            `status → ${event.status.state}`,
+            { ...task, state: event.status.state, answer: failed ? (stop?.text ?? note) : task.answer, escalation: stop?.escalation },
+            stop ? `status → failed (${stop.escalation.reasonCode})` : `status → ${event.status.state}`,
           ),
         )
       } else if (event.kind === 'artifact-update') {
@@ -873,9 +910,10 @@ export default function Page() {
                 <span className={`agent-status${working ? ' working' : ''}`}>
                   {disabled ? 'disabled' : !agent.card ? 'offline' : working ? 'working…' : 'idle'}
                   {!disabled && !!agent.delayMs && ` · ${agent.delayMs / 1000}s delay`}
+                  {!disabled && !!agent.fault && agent.fault !== 'none' && ` · fault: ${agent.fault}`}
                 </span>
               </button>
-              {(agent.enabled !== null || agent.delayMs !== null) && (
+              {(agent.enabled !== null || agent.delayMs !== null || agent.fault !== null) && (
                 <button
                   type="button"
                   className="settings-button"
@@ -929,6 +967,7 @@ export default function Page() {
           agent={settingsAgent}
           onToggle={enabled => toggleAgent(settingsAgent.id, enabled)}
           onDelayChange={delayMs => setAgentDelay(settingsAgent.id, delayMs)}
+          onFaultChange={fault => setAgentFault(settingsAgent.id, fault)}
           onClose={() => setSettingsAgentId(undefined)}
         />
       )}
@@ -958,7 +997,7 @@ export default function Page() {
           <div className="messages" ref={messagesRef}>
             {turns.length === 0 && (
               <div className="chat-empty">
-                <p>{mode === 'pap' ? 'Ask the lender something, as the borrower’s agent' : 'Ask the loan router something'}, or try one of these:</p>
+                <p>{mode === 'pap' ? 'Ask the lender something, as the borrower’s agent' : 'Ask the loan master something'}, or try one of these:</p>
                 <div className="suggestions">
                   {SUGGESTIONS[mode].map(suggestion => (
                     <button key={suggestion} type="button" onClick={() => send(suggestion)}>
@@ -980,6 +1019,17 @@ export default function Page() {
                       {router && <Avatar id={router.id} working={running} />}
                       <div className={`bubble router${task.state === 'failed' ? ' failed' : ''}`}>
                         {task.answer ? <Markdown text={task.answer} /> : <Typing />}
+                        {task.escalation && (
+                          <p className="escalation">
+                            <span className="badge failed">{task.escalation.reasonCode}</span>
+                            <span>{task.escalation.failureClass}</span>
+                            {task.escalation.retryAfterMs !== undefined && <span>retry after {Math.ceil(task.escalation.retryAfterMs / 1000)}s</span>}
+                            {task.escalation.approval && <code>approval {task.escalation.approval.approvalId}</code>}
+                            <a href={task.escalation.destination.url} target="_blank" rel="noreferrer">
+                              {task.escalation.destination.label} →
+                            </a>
+                          </p>
+                        )}
                         <details className="events">
                           <summary>
                             <span className={`badge ${task.state}`}>{task.state}</span> {task.log.length} A2A events
@@ -1074,7 +1124,7 @@ export default function Page() {
               <input
                 value={input}
                 onChange={e => setInput(e.target.value)}
-                placeholder={mode === 'pap' ? 'Message the lender, as the borrower’s agent…' : 'Message the loan router…'}
+                placeholder={mode === 'pap' ? 'Message the lender, as the borrower’s agent…' : 'Message the loan master…'}
                 autoFocus
               />
               <button type="submit" disabled={!input.trim()}>
@@ -1101,10 +1151,12 @@ export default function Page() {
         {sessionTasks.map(task => {
           const state = taskState(task)
           const result = (task.artifacts ?? []).map(artifact => partsText(artifact.parts)).join('')
+          const reason = readReason(partsText(task.status?.message?.parts))
           return (
             <article key={`${task.agent}/${task.id}`}>
               <div className="row">
                 <span className={`badge ${state}`}>{state}</span>
+                {reason && <span className="badge failed">{reason}</span>}
                 <span className="agent">{task.agent}</span>
                 <span className="prompt">{partsText(task.history?.[0]?.parts) || '(delegated request)'}</span>
               </div>
