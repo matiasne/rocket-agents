@@ -1,9 +1,10 @@
-import { Agent } from '@mastra/core/agent'
 import { Mastra } from '@mastra/core/mastra'
 import { createObservability } from '../../../shared/observability'
 import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
-import { delayRoutes, responseDelay } from '../../../shared/delay'
+import { delayRoutes } from '../../../shared/delay'
+import { createSpecialistAgent } from '../../../shared/escalation-runtime'
+import { faultRoutes } from '../../../shared/fault'
 import { MODEL } from '../../../shared/model'
 
 type Asset = { assetId: string; type: string; institution?: string; value: number; removed: boolean }
@@ -62,19 +63,18 @@ const restoreAsset = createTool({
   execute: async ({ loanId, assetId }) => setRemoved(loanId, assetId, false),
 })
 
-const assetsAgent = new Agent({
+const assetsAgent = createSpecialistAgent({
   id: 'assets',
   name: 'Assets',
   description: 'The assets on a loan.',
   instructions:
     'You manage the assets on a mortgage loan. Always use your tools, and require a loanId. Never estimate a value that was not given. State each assetId in your reply.',
   model: MODEL,
-  inputProcessors: [responseDelay],
   tools: { addAsset, listAssets, removeAsset, restoreAsset },
 })
 
 export const mastra = new Mastra({
   agents: { assetsAgent },
   observability: createObservability('assets'),
-  server: { port: Number(process.env.PORT ?? 4117), apiRoutes: delayRoutes },
+  server: { port: Number(process.env.PORT ?? 4117), apiRoutes: [...delayRoutes, ...faultRoutes] },
 })

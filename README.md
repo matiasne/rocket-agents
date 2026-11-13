@@ -84,7 +84,7 @@ The ports are the same as with `pnpm dev`, so stop one before starting the other
 with the id in upper snake case: `A2A_TRANSPORT_CREDIT=push`, `A2A_TRANSPORT_LOAN_INTAKE=poll`.
 
 **Where servers live** — `<ID>_URL`, e.g. `CREDIT_URL=https://credit.example.com`. The router and the
-UI both read it, so a specialist can move to another host without code changes. `ROUTER_URL` does the
+UI both read it, so a specialist can move to another host without code changes. `MASTER_URL` does the
 same for the router (UI only).
 
 **Tracing** — set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` (and `LANGFUSE_BASE_URL` if you are not on
@@ -203,6 +203,42 @@ Not implemented: authorization, resources, prompts. **The borrower is not verifi
 `X-Borrower-Id` header is taken at its word and the endpoint is open, like the A2A and PAP ones.
 Set `MCP_REQUEST_STATE_KEY` to keep a pending approval answerable across a router restart.
 
+## When a turn cannot be answered: escalations
+
+A turn that ends without an answer ends as an **escalation**: a reason code, a class, a retry hint,
+a link to carry on by hand, and one fixed sentence. The fault itself (stack, provider message) stays
+in the server log.
+
+| Reason code | When |
+| --- | --- |
+| `service_unavailable` | A model call failed, or a specialist is disabled or unreachable |
+| `rate_limited` | A limiter turned the caller away (only the fault switch produces it here) |
+| `unsupported_request` | Outside what the agent does (rental income), or a guardrail stopped the run |
+| `request_rejected` | A rule or permission said no (a declaration not stated by the borrower) |
+| `approval_required`, `approval_denied` | A credit pull without the borrower's approval, or with an expired one |
+| `agent_steps_exhausted` | The agent hit its step cap (router 20, specialists 8) |
+| `escalation_limit_reached` | `MAX_CONSECUTIVE_ESCALATIONS` turns in a row escalated in one conversation |
+| `internal_error` | Anything else |
+
+**On the wire.** Mastra's A2A handler can only end a task as completed, input-required or failed, so
+an escalation is a `failed` task whose text is `Handler failed: [[escalation:v2]]{json}`. A specialist
+sends a hint (code, wait, cause); the router sends the public fields and the sentence. A blocking
+`message/send` returns the same text as a JSON-RPC error instead of a failed task. The PAP door posts
+the sentence with the fields in `data.escalation`; the MCP door returns the sentence.
+
+**The router's rules.** `service_unavailable` is retried up to 3 times in a turn, `rate_limited`
+never. `unsupported_request` lets the router try one other specialist. After
+`MAX_CONSECUTIVE_ESCALATIONS` (default 3) escalated turns in a row, the conversation's next turns end
+at once with `escalation_limit_reached`, without a model call; an answered turn resets the count.
+Counts live in memory.
+
+**Try it.** Open an agent's settings (the gear) and pick a fault under *Inject a fault*: `outage`,
+`rate-limit`, `denied`, `unsupported`, `guardrail` or `crash`. Each goes down the path a real fault
+of its kind would. The links point at `PORTAL_BASE_URL` (default `http://localhost:3030`) and are
+illustrative: this demo has no such pages.
+
+`pnpm test` runs the unit tests of the contract and of the router's rules.
+
 ## What to look at
 
 | File | What it shows |
@@ -216,6 +252,10 @@ Set `MCP_REQUEST_STATE_KEY` to keep a pending approval answerable across a route
 | `servers/credit/src/mastra/index.ts` | `pull-credit` checking the approval in code |
 | `servers/<id>/src/mastra/index.ts` | A specialist: mock tools, one agent, one server (exposed over A2A automatically) |
 | `servers/shared/observability.ts` | The Langfuse exporter every server uses |
+| `servers/shared/escalation/` | The escalation contract: codes, classification, destinations, prose, the envelope |
+| `servers/shared/escalation-runtime.ts` | How an agent ends a turn as an escalation |
+| `servers/shared/fault.ts` | The fault switch |
+| `servers/router/src/mastra/escalation/` | The router's retry, reroute and cap rules |
 | `src/app/api/tasks/route.ts` | The router's task relayed to the browser as SSE |
 | `src/app/api/specialist-tasks/route.ts` | Polling every specialist with `getA2AV1().listTasks()` |
 | `src/app/api/agents/route.ts` | Discovery through agent cards |

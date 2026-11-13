@@ -1,9 +1,10 @@
-import { Agent } from '@mastra/core/agent'
 import { Mastra } from '@mastra/core/mastra'
 import { createObservability } from '../../../shared/observability'
 import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
-import { delayRoutes, responseDelay } from '../../../shared/delay'
+import { delayRoutes } from '../../../shared/delay'
+import { createSpecialistAgent } from '../../../shared/escalation-runtime'
+import { faultRoutes } from '../../../shared/fault'
 import { MODEL } from '../../../shared/model'
 
 const liabilityInput = z.object({
@@ -56,19 +57,18 @@ const listLiabilities = createTool({
   execute: async ({ loanId }) => summary(loanId),
 })
 
-const liabilitiesAgent = new Agent({
+const liabilitiesAgent = createSpecialistAgent({
   id: 'liabilities',
   name: 'Liabilities',
   description: 'The liabilities on a loan, populated from the credit pull and confirmed by the borrower.',
   instructions:
     'You manage the liabilities on a mortgage loan. Always use your tools, and require a loanId. Liabilities usually arrive as tradelines from a credit pull: save them with source "credit-pull" and unconfirmed. Mark one confirmed only when the request says the borrower confirmed it. Send all changes in one upsert call. Never estimate a balance or payment that was not given.',
   model: MODEL,
-  inputProcessors: [responseDelay],
   tools: { upsertLiabilities, listLiabilities },
 })
 
 export const mastra = new Mastra({
   agents: { liabilitiesAgent },
   observability: createObservability('liabilities'),
-  server: { port: Number(process.env.PORT ?? 4118), apiRoutes: delayRoutes },
+  server: { port: Number(process.env.PORT ?? 4118), apiRoutes: [...delayRoutes, ...faultRoutes] },
 })

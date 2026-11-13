@@ -1,9 +1,10 @@
-import { Agent } from '@mastra/core/agent'
 import { Mastra } from '@mastra/core/mastra'
 import { createObservability } from '../../../shared/observability'
 import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
-import { delayRoutes, responseDelay } from '../../../shared/delay'
+import { delayRoutes } from '../../../shared/delay'
+import { createSpecialistAgent } from '../../../shared/escalation-runtime'
+import { faultRoutes } from '../../../shared/fault'
 import { MODEL } from '../../../shared/model'
 
 const loanTerms = z.object({
@@ -63,19 +64,18 @@ const updateLoan = createTool({
   },
 })
 
-const loanIntakeAgent = new Agent({
+const loanIntakeAgent = createSpecialistAgent({
   id: 'loan-intake',
   name: 'Loan Intake and URLA',
   description: 'Creates the loan, from a URLA file import or entity by entity, and keeps its core terms.',
   instructions:
     'You create mortgage loans and keep their core terms (purpose, amount, product group). Always use your tools. Create a loan from a file with import-urla when a file is named, otherwise with create-loan. Always state the loanId in your reply. You do not handle borrowers, income, assets, property or credit.',
   model: MODEL,
-  inputProcessors: [responseDelay],
   tools: { createLoan, importUrla, getLoan, updateLoan },
 })
 
 export const mastra = new Mastra({
   agents: { loanIntakeAgent },
   observability: createObservability('loan-intake'),
-  server: { port: Number(process.env.PORT ?? 4113), apiRoutes: delayRoutes },
+  server: { port: Number(process.env.PORT ?? 4113), apiRoutes: [...delayRoutes, ...faultRoutes] },
 })

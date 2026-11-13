@@ -10,6 +10,7 @@
 import type { Mastra } from '@mastra/core/mastra'
 import { RequestContext } from '@mastra/core/request-context'
 import { registerApiRoute } from '@mastra/core/server'
+import { escalationOf } from './escalation/router'
 import { specialists } from './specialists'
 
 const PUBLIC_URL = (process.env.ROUTER_PUBLIC_URL ?? `http://localhost:${process.env.PORT ?? 4111}`).replace(/\/$/, '')
@@ -112,12 +113,14 @@ async function runRouter(mastra: Mastra, conversation: Conversation, text: strin
   try {
     const requestContext = new RequestContext()
     requestContext.set('poppy', poppy)
-    const result = await mastra.getAgent('routerAgent').generate(text, { requestContext })
+    const result = await mastra.getAgent('masterAgent').generate(text, { requestContext })
     // After an approved run, report what the credit server actually did with the operation.
     const status = poppy.approved && (await operationStatus(poppy.approved.operation_id))
     say(conversation, { text: result.text, ...(status && { data: { operation: status } }) })
   } catch (error) {
-    say(conversation, { text: `Something went wrong: ${error instanceof Error ? error.message : String(error)}` })
+    // The router agent ends a turn it cannot answer by throwing its escalation: fixed prose and the public fields.
+    const { text, escalation } = escalationOf(error)
+    say(conversation, { text, data: { escalation } })
   } finally {
     conversation.working--
     notify(conversation)

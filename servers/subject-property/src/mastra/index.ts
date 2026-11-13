@@ -1,9 +1,10 @@
-import { Agent } from '@mastra/core/agent'
 import { Mastra } from '@mastra/core/mastra'
 import { createObservability } from '../../../shared/observability'
 import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
-import { delayRoutes, responseDelay } from '../../../shared/delay'
+import { delayRoutes } from '../../../shared/delay'
+import { createSpecialistAgent } from '../../../shared/escalation-runtime'
+import { faultRoutes } from '../../../shared/fault'
 import { MODEL } from '../../../shared/model'
 
 const propertyInput = z.object({
@@ -53,19 +54,18 @@ const getDisclosures = createTool({
   },
 })
 
-const subjectPropertyAgent = new Agent({
+const subjectPropertyAgent = createSpecialistAgent({
   id: 'subject-property',
   name: 'Subject Property',
   description: 'The property being financed, and its disclosures.',
   instructions:
     'You manage the subject property of a mortgage loan: the property being financed. Always use your tools, and require a loanId. Valuation, insurance and taxes are not yours; they are handled later, in the third-party stage, so say so if asked. Properties the borrowers already own belong to the owned-properties specialist. Never guess a detail that was not given.',
   model: MODEL,
-  inputProcessors: [responseDelay],
   tools: { setSubjectProperty, getSubjectProperty, getDisclosures },
 })
 
 export const mastra = new Mastra({
   agents: { subjectPropertyAgent },
   observability: createObservability('subject-property'),
-  server: { port: Number(process.env.PORT ?? 4120), apiRoutes: delayRoutes },
+  server: { port: Number(process.env.PORT ?? 4120), apiRoutes: [...delayRoutes, ...faultRoutes] },
 })

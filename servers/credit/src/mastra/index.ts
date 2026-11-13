@@ -1,10 +1,12 @@
-import { Agent } from '@mastra/core/agent'
 import { Mastra } from '@mastra/core/mastra'
 import { createObservability } from '../../../shared/observability'
 import { registerApiRoute } from '@mastra/core/server'
 import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
-import { delayRoutes, responseDelay } from '../../../shared/delay'
+import { delayRoutes } from '../../../shared/delay'
+import { EscalationHintError } from '../../../shared/escalation'
+import { createSpecialistAgent } from '../../../shared/escalation-runtime'
+import { faultRoutes } from '../../../shared/fault'
 import { MODEL } from '../../../shared/model'
 
 // Mock data: one credit result per loan, in memory. `~` in the paths below is /loans/{loanId}.
@@ -47,11 +49,13 @@ const pullCredit = createTool({
   execute: async ({ loanId, loanOfficerApproval }, context) => {
     const approval = context.requestContext?.get('poppyApproval') as BorrowerApproval | undefined
     if (approval?.terms.action !== 'credit-pull' || approval.terms.loanId !== loanId) {
-      return { error: `approval_required: credit not pulled. The borrower has not approved a credit pull for loan ${loanId}.` }
+      // No approval of this pull came with the request. Nothing is pulled, and the turn ends here.
+      throw new EscalationHintError('approval_required', { cause: 'permission' })
     }
     const earlier = pullsByOperation.get(approval.operation_id)
     if (earlier) return earlier.result
-    if (Date.parse(approval.expires_at) <= Date.now()) return { error: "approval_required: credit not pulled. The borrower's approval has expired." }
+    // The approval ran out before it was used: it no longer approves anything.
+    if (Date.parse(approval.expires_at) <= Date.now()) throw new EscalationHintError('approval_denied', { cause: 'permission' })
     if (!loanOfficerApproval) return { error: 'Credit not pulled. Missing: loan officer approval.' }
     const pull = {
       status: 'performing' as 'performing' | 'performed',
@@ -84,14 +88,13 @@ const getCreditResults = createTool({
   execute: async ({ loanId }) => resultsByLoan.get(loanId) ?? { error: `No credit has been pulled for loan ${loanId}` },
 })
 
-const creditAgent = new Agent({
+const creditAgent = createSpecialistAgent({
   id: 'credit',
   name: 'Credit',
   description: 'Pulls credit for a loan and reads the results.',
   instructions:
-    'You pull credit for a mortgage loan and report the results. Always use your tools, and require a loanId. A credit pull is a commit. It needs the borrower’s approval, which the pull tool checks on its own: you cannot supply it, so when the tool answers approval_required, report that and stop. It also needs the loan officer’s approval: only state it when the request explicitly does, and never assume it. Report the credit score and every tradeline in full, because the liabilities specialist needs them.',
+    'You pull credit for a mortgage loan and report the results. Always use your tools, and require a loanId. A credit pull is a commit. It needs the borrower’s approval, which the pull tool checks on its own: you cannot supply it. It also needs the loan officer’s approval: only state it when the request explicitly does, and never assume it. Report the credit score and every tradeline in full, because the liabilities specialist needs them.',
   model: MODEL,
-  inputProcessors: [responseDelay],
   tools: { pullCredit, getCreditResults },
 })
 
@@ -100,7 +103,7 @@ export const mastra = new Mastra({
   observability: createObservability('credit'),
   server: {
     port: Number(process.env.PORT ?? 4121),
-    apiRoutes: [operationStatus, ...delayRoutes],
+    apiRoutes: [operationStatus, ...delayRoutes, ...faultRoutes],
     middleware: [
       async (c, next) => {
         const header = c.req.header('X-Poppy-Approval')

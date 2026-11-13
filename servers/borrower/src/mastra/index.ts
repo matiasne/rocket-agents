@@ -1,9 +1,10 @@
-import { Agent } from '@mastra/core/agent'
 import { Mastra } from '@mastra/core/mastra'
 import { createObservability } from '../../../shared/observability'
 import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
-import { delayRoutes, responseDelay } from '../../../shared/delay'
+import { delayRoutes } from '../../../shared/delay'
+import { createSpecialistAgent } from '../../../shared/escalation-runtime'
+import { faultRoutes } from '../../../shared/fault'
 import { MODEL } from '../../../shared/model'
 
 type Borrower = {
@@ -89,19 +90,18 @@ const deactivateBorrower = createTool({
   },
 })
 
-const borrowerAgent = new Agent({
+const borrowerAgent = createSpecialistAgent({
   id: 'borrower',
   name: 'Borrower',
   description: 'The borrowers and co-borrowers on a loan.',
   instructions:
     'You manage the borrowers and co-borrowers on a mortgage loan. Always use your tools, and require a loanId. Always state each borrowerId in your reply, because other specialists need it. You do not handle declarations, income or credit.',
   model: MODEL,
-  inputProcessors: [responseDelay],
   tools: { addBorrower, listBorrowers, setPrimaryBorrower, setSpousalRelationship, deactivateBorrower },
 })
 
 export const mastra = new Mastra({
   agents: { borrowerAgent },
   observability: createObservability('borrower'),
-  server: { port: Number(process.env.PORT ?? 4114), apiRoutes: delayRoutes },
+  server: { port: Number(process.env.PORT ?? 4114), apiRoutes: [...delayRoutes, ...faultRoutes] },
 })

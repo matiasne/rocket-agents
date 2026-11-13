@@ -1,9 +1,10 @@
-import { Agent } from '@mastra/core/agent'
 import { Mastra } from '@mastra/core/mastra'
 import { createObservability } from '../../../shared/observability'
 import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
-import { delayRoutes, responseDelay } from '../../../shared/delay'
+import { delayRoutes } from '../../../shared/delay'
+import { createSpecialistAgent } from '../../../shared/escalation-runtime'
+import { faultRoutes } from '../../../shared/fault'
 import { MODEL } from '../../../shared/model'
 
 const propertyInput = z.object({
@@ -51,19 +52,18 @@ const listOwnedProperties = createTool({
   },
 })
 
-const ownedPropertiesAgent = new Agent({
+const ownedPropertiesAgent = createSpecialistAgent({
   id: 'owned-properties',
   name: 'Owned Properties (REO)',
   description: 'Real estate the borrowers already own. Feeds liabilities and rental income.',
   instructions:
     'You manage the real estate the borrowers already own (REO) on a mortgage loan. Always use your tools, and require a loanId. Rental income and mortgages on these properties are recorded here; report them in your reply so they can be passed on. Never estimate a value that was not given. The property being financed is not yours: it belongs to the subject-property specialist.',
   model: MODEL,
-  inputProcessors: [responseDelay],
   tools: { addOwnedProperty, listOwnedProperties },
 })
 
 export const mastra = new Mastra({
   agents: { ownedPropertiesAgent },
   observability: createObservability('owned-properties'),
-  server: { port: Number(process.env.PORT ?? 4119), apiRoutes: delayRoutes },
+  server: { port: Number(process.env.PORT ?? 4119), apiRoutes: [...delayRoutes, ...faultRoutes] },
 })

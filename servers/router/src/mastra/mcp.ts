@@ -18,6 +18,7 @@ import { RequestContext } from '@mastra/core/request-context'
 import { createTool } from '@mastra/core/tools'
 import { MCPServer } from '@mastra/mcp'
 import { z } from 'zod'
+import { escalationOf } from './escalation/router'
 import { creditPullRequest, getOperation, newId, operationStatus, type PoppyContext } from './poppy'
 
 // Reports each delegation to the client. A no-op unless it sent a progress token, and once the
@@ -30,8 +31,13 @@ function reportProgress(context: { mcp?: { progress?: (params: { progress: numbe
 async function runRouter(mastra: Mastra, text: string, poppy: PoppyContext) {
   const requestContext = new RequestContext()
   requestContext.set('poppy', poppy)
-  const result = await mastra.getAgent('routerAgent').generate(text, { requestContext })
-  return result.text
+  try {
+    const result = await mastra.getAgent('masterAgent').generate(text, { requestContext })
+    return result.text
+  } catch (error) {
+    // A turn the router could not answer: its fixed prose, with the link to carry on by hand.
+    return escalationOf(error).text
+  }
 }
 
 const askLoanRouter = createTool({

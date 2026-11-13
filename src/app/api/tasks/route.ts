@@ -1,10 +1,10 @@
-import { router } from '@/lib/mastra-client'
+import { master } from '@/lib/mastra-client'
 
 // Sends the user's message to the router agent over A2A (`message/stream`)
 // and relays every A2A event (task, status-update, artifact-update) to the browser as SSE.
 export async function POST(req: Request) {
   const { text, contextId } = await req.json()
-  const a2a = router.client.getA2A(router.id)
+  const a2a = master.client.getA2A(master.id)
   const encoder = new TextEncoder()
 
   const body = new ReadableStream({

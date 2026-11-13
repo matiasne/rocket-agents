@@ -1,9 +1,10 @@
-import { Agent } from '@mastra/core/agent'
 import { Mastra } from '@mastra/core/mastra'
 import { createObservability } from '../../../shared/observability'
 import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
-import { delayRoutes, responseDelay } from '../../../shared/delay'
+import { delayRoutes } from '../../../shared/delay'
+import { createSpecialistAgent } from '../../../shared/escalation-runtime'
+import { faultRoutes } from '../../../shared/fault'
 import { MODEL } from '../../../shared/model'
 
 // Mock data. Read-only: nothing here changes a loan.
@@ -48,19 +49,18 @@ const priceScenario = createTool({
   },
 })
 
-const productEligibilityAgent = new Agent({
+const productEligibilityAgent = createSpecialistAgent({
   id: 'product-eligibility',
   name: 'Product Eligibility',
   description: 'Read-only pricing and product eligibility for a loan scenario.',
   instructions:
     'You answer product eligibility and pricing questions for a mortgage loan. Always use your tools; never guess rates or limits. You are read-only: you cannot change a loan. If the request lacks the loan amount, property value or credit score needed for pricing, say which is missing. Reply with the tool results, concisely.',
   model: MODEL,
-  inputProcessors: [responseDelay],
   tools: { listProductGroups, priceScenario },
 })
 
 export const mastra = new Mastra({
   agents: { productEligibilityAgent },
   observability: createObservability('product-eligibility'),
-  server: { port: Number(process.env.PORT ?? 4112), apiRoutes: delayRoutes },
+  server: { port: Number(process.env.PORT ?? 4112), apiRoutes: [...delayRoutes, ...faultRoutes] },
 })

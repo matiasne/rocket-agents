@@ -1,9 +1,11 @@
-import { Agent } from '@mastra/core/agent'
 import { Mastra } from '@mastra/core/mastra'
 import { createObservability } from '../../../shared/observability'
 import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
-import { delayRoutes, responseDelay } from '../../../shared/delay'
+import { delayRoutes } from '../../../shared/delay'
+import { EscalationHintError } from '../../../shared/escalation'
+import { createSpecialistAgent } from '../../../shared/escalation-runtime'
+import { faultRoutes } from '../../../shared/fault'
 import { MODEL } from '../../../shared/model'
 
 // The three sections, named after their endpoints under ~/borrowers/{borrowerId}/
@@ -36,26 +38,26 @@ const saveDeclarations = createTool({
     statedByBorrower: z.boolean().describe('True only if the request says these answers came from the borrower'),
   }),
   execute: async ({ loanId, borrowerId, section, answers, statedByBorrower }) => {
-    if (!statedByBorrower) return { error: 'Not saved: declarations must be the borrower’s own answers.' }
+    // Declarations must be the borrower's own answers. Nothing is saved, and the turn ends here.
+    if (!statedByBorrower) throw new EscalationHintError('request_rejected', { cause: 'rule' })
     const key = keyOf(loanId, borrowerId, section)
     answersByKey.set(key, { ...answersByKey.get(key), ...answers })
     return { section, answers: answersByKey.get(key) }
   },
 })
 
-const declarationsAgent = new Agent({
+const declarationsAgent = createSpecialistAgent({
   id: 'declarations',
   name: 'Declarations',
   description: "A borrower's declarations, demographic information and military service.",
   instructions:
     'You record a borrower’s declarations, demographic information and military service on a mortgage loan. These are legal statements: save only answers the request explicitly attributes to the borrower. Never infer, default or complete an answer; if something is missing or ambiguous, save nothing for it and say what the borrower still has to answer. Always use your tools, and require a loanId and borrowerId.',
   model: MODEL,
-  inputProcessors: [responseDelay],
   tools: { getDeclarations, saveDeclarations },
 })
 
 export const mastra = new Mastra({
   agents: { declarationsAgent },
   observability: createObservability('declarations'),
-  server: { port: Number(process.env.PORT ?? 4115), apiRoutes: delayRoutes },
+  server: { port: Number(process.env.PORT ?? 4115), apiRoutes: [...delayRoutes, ...faultRoutes] },
 })

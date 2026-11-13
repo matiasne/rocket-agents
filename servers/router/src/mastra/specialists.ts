@@ -1,21 +1,34 @@
+import { validateDestination, type EscalationDestination } from '../../../shared/escalation'
+
+// Where the borrower's approval of a credit pull is given, for the two codes about it.
+const CREDIT_AUTHORIZATION = {
+  path: '/loans/credit/authorization',
+  label: 'Credit authorization',
+  instructions: 'Ask the borrower to approve the credit pull from their own assistant.',
+}
+
 // The specialist agents the router can hand work to. Each one runs on its own
 // Mastra server and is reached only over A2A.
+//
+// `destination` is where a person can carry on by hand when the specialist cannot: a page of
+// the loan portal, shown as a link when a turn ends as an escalation. Paths only; the router
+// joins them to PORTAL_BASE_URL.
 //
 // Per specialist, two things can be set in `.env` (NAME = id in upper snake case):
 //   <NAME>_URL            where its server lives        (default: http://localhost:<port>)
 //   A2A_TRANSPORT_<NAME>  how the router waits for it   (default: A2A_TRANSPORT, else `stream`)
 const SPECIALISTS = [
-  { id: 'product-eligibility', port: 4112, does: 'Read-only pricing and product eligibility for a loan scenario.' },
-  { id: 'loan-intake', port: 4113, does: 'Creates the loan (blank or from a URLA file import) and reads or updates its core terms. Returns the loanId every other specialist needs.' },
-  { id: 'borrower', port: 4114, does: 'Adds, lists and deactivates borrowers and co-borrowers, and sets the primary borrower and spousal relationships.' },
-  { id: 'declarations', port: 4115, does: "Records a borrower's declarations, demographic information and military service. Borrower answers only, never inferred." },
-  { id: 'income-employment', port: 4116, does: 'Employment and income per borrower. Rental income is not entered here; it comes from owned properties.' },
-  { id: 'assets', port: 4117, does: 'Assets per loan: add, list, remove and restore.' },
-  { id: 'liabilities', port: 4118, does: 'Liabilities per loan (bulk upsert). Normally populated from the credit pull, then confirmed by the borrower.' },
-  { id: 'owned-properties', port: 4119, does: 'Real estate the borrowers already own (REO). Feeds liabilities and rental income.' },
-  { id: 'subject-property', port: 4120, does: 'The property being financed, and its disclosures.' },
-  { id: 'credit', port: 4121, does: "Pulls credit and reads the results. Slow. Needs the borrower's approval (request-borrower-approval) and the loan officer's approval." },
-] as const
+  { id: 'product-eligibility', port: 4112, does: 'Read-only pricing and product eligibility for a loan scenario.', destination: { default: { path: '/products', label: 'Products and eligibility' } } },
+  { id: 'loan-intake', port: 4113, does: 'Creates the loan (blank or from a URLA file import) and reads or updates its core terms. Returns the loanId every other specialist needs.', destination: { default: { path: '/loans', label: 'Loan pipeline' } } },
+  { id: 'borrower', port: 4114, does: 'Adds, lists and deactivates borrowers and co-borrowers, and sets the primary borrower and spousal relationships.', destination: { default: { path: '/loans/borrowers', label: 'Borrower details' } } },
+  { id: 'declarations', port: 4115, does: "Records a borrower's declarations, demographic information and military service. Borrower answers only, never inferred.", destination: { default: { path: '/loans/declarations', label: 'Declarations' } } },
+  { id: 'income-employment', port: 4116, does: 'Employment and income per borrower. Rental income is not entered here; it comes from owned properties.', destination: { default: { path: '/loans/income', label: 'Income and employment' } } },
+  { id: 'assets', port: 4117, does: 'Assets per loan: add, list, remove and restore.', destination: { default: { path: '/loans/assets', label: 'Assets' } } },
+  { id: 'liabilities', port: 4118, does: 'Liabilities per loan (bulk upsert). Normally populated from the credit pull, then confirmed by the borrower.', destination: { default: { path: '/loans/liabilities', label: 'Liabilities' } } },
+  { id: 'owned-properties', port: 4119, does: 'Real estate the borrowers already own (REO). Feeds liabilities and rental income.', destination: { default: { path: '/loans/owned-properties', label: 'Owned properties' } } },
+  { id: 'subject-property', port: 4120, does: 'The property being financed, and its disclosures.', destination: { default: { path: '/loans/property', label: 'Subject property' } } },
+  { id: 'credit', port: 4121, does: "Pulls credit and reads the results. Slow. Needs the borrower's approval (request-borrower-approval) and the loan officer's approval.", destination: { default: { path: '/loans/credit', label: 'Credit' }, byReason: { approval_required: CREDIT_AUTHORIZATION, approval_denied: CREDIT_AUTHORIZATION } } },
+] as const satisfies readonly { id: string; port: number; does: string; destination: EscalationDestination }[]
 
 export type SpecialistId = (typeof SPECIALISTS)[number]['id']
 
@@ -35,11 +48,14 @@ function readTransport(name: string, fallback: Transport): Transport {
 
 const defaultTransport = readTransport('A2A_TRANSPORT', 'stream')
 
-export const specialists = SPECIALISTS.map(({ id, port, does }) => {
+export const specialists = SPECIALISTS.map(({ id, port, does, destination }) => {
+  // A path that could leave the portal stops the server at start, not at the first escalation.
+  validateDestination(destination)
   const envName = id.toUpperCase().replaceAll('-', '_')
   return {
     id,
     does,
+    destination: destination as EscalationDestination,
     url: process.env[`${envName}_URL`] ?? `http://localhost:${port}`,
     transport: readTransport(`A2A_TRANSPORT_${envName}`, defaultTransport),
   }
